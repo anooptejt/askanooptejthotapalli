@@ -42,10 +42,10 @@ This repository publishes its static export through `.github/workflows/deploy-pa
 
 The URL prefix is defined in `src/lib/site.ts`; Next.js applies it to navigation and scripts, and the profile image uses the same prefix. Keep the prefix aligned with the publishing folder. Trailing slashes allow direct visits and refreshes on GitHub Pages. Image optimization is disabled because Pages has no image server.
 
-Edit guides in `src/content/`, identity and contact links in `src/lib/profile.ts`, and the homepage in `src/app/page.tsx`. Commit content changes to the deployment copy to publish them through the portfolio workflow.
+Edit guides in `src/content/`, identity and contact links in `src/lib/profile.ts`, and the homepage in `src/app/page.tsx`. Commit content changes to this repository to publish them through its Pages workflow.
 
 ## Messaging
 
 The standalone server in `gateway/` keeps the n8n key private and supplies server-generated visitor identities. `public/relay-config.json` contains only its public HTTPS address. Use `npm run relay:status`, `npm run relay:start`, and `npm run relay:stop` on the configured Mac. A fresh tunnel start requires publishing its new address. Read [gateway/README.md](gateway/README.md) for operation and recovery.
 
-The old `n8n/` WhatsApp export is a historical artifact and is not used. The active Telegram workflows and their Docker data are maintained separately.
+The active Telegram workflows and their Docker data are maintained separately.
