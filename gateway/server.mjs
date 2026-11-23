@@ -4,18 +4,23 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createLikeStore } from './likes.mjs'
+import { createRateLimitStore } from './rate-limits.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ID = /^[A-Za-z0-9._:@-]{1,128}$/
 const STATES = new Set(['queued', 'sending', 'awaiting_reply', 'answered', 'failed', 'delivery_unknown'])
 const fail = (status, message) => Object.assign(new Error(message), { status })
 
-export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1:5678', origins, likeStore, fetchImpl = fetch, now = Date.now }) {
+export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1:5678', origins, likeStore, rateLimitStore, fetchImpl = fetch, now = Date.now }) {
   if (!apiKey || signingKey.length < 32 || !origins?.length) throw Error('Gateway configuration is incomplete')
   const buckets = new Map()
   const sign = value => createHmac('sha256', signingKey).update(value).digest('base64url')
   function limit(key, max, window = 60_000) {
     const time = now()
+    if (rateLimitStore) {
+      if (!rateLimitStore.allow(key, max, window, time)) throw fail(429, 'Please wait before trying again.')
+      return
+    }
     for (const [id, item] of buckets) if (item.until <= time) buckets.delete(id)
     if (!buckets.has(key)) {
       if (buckets.size >= 10_000) throw fail(429, 'Messaging is busy. Please try again later.')
@@ -139,7 +144,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const apiKey = (await readFile(config.apiKeyFile, 'utf8')).trim()
   const signingKey = (await readFile(resolve('.relay/signing-key.txt'), 'utf8')).trim()
   const likeStore = createLikeStore(resolve('.relay/likes.sqlite'))
-  const server = createGateway({ ...config, apiKey, signingKey, likeStore })
+  const rateLimitStore = createRateLimitStore(resolve('.relay/rate-limits.sqlite'), signingKey)
+  const server = createGateway({ ...config, apiKey, signingKey, likeStore, rateLimitStore })
   server.listen(config.port || 38473, '127.0.0.1', () => console.log('Messaging gateway listening on 127.0.0.1:38473'))
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { likeStore.close(); process.exit(0) }))
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { likeStore.close(); rateLimitStore.close(); process.exit(0) }))
 }

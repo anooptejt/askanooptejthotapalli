@@ -1,13 +1,15 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createGateway } from './server.mjs'
+import { createRateLimitStore } from './rate-limits.mjs'
 
 const origin = 'https://anooptejt.github.io'
 const calls = [], conversations = new Map()
-let address, server, clock = Date.now(), offline = false
+let address, server, store, clock = Date.now(), offline = false
 const uid = 'a1234567-1234-4567-8912-123456789abc'
 before(async () => {
-  server = createGateway({ apiKey: 'private-test-key', signingKey: 'x'.repeat(64), origins: [origin], now: () => clock,
+  store = createRateLimitStore(':memory:', 'x'.repeat(64))
+  server = createGateway({ apiKey: 'private-test-key', signingKey: 'x'.repeat(64), origins: [origin], rateLimitStore: store, now: () => clock,
     fetchImpl: async (url, options) => {
       calls.push({ url, options })
       assert.equal(options.headers['X-Agent-Key'], 'private-test-key')
@@ -27,7 +29,7 @@ before(async () => {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   address = `http://127.0.0.1:${server.address().port}`
 })
-after(() => new Promise(resolve => server.close(resolve)))
+after(() => new Promise(resolve => server.close(() => { store.close(); resolve() })))
 const request = (path, { token, body, method, requestOrigin = origin } = {}) => fetch(address + path, { method: method || (body ? 'POST' : 'GET'), headers: { Origin: requestOrigin, ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined })
 const session = async () => (await (await request('/v1/session', { body: {} })).json()).token
 let token
