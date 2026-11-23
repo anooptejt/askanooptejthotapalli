@@ -89,3 +89,16 @@ test('send limits and session expiry are enforced', async () => {
   clock += 31 * 24 * 3_600_000
   assert.equal((await request(`/v1/conversations/${uid}/replies`, { token })).status, 401)
 })
+test('expired sessions can be renewed only during the recovery window without changing identity', async () => {
+  assert.equal((await request('/v1/session/renew', { token: token + 'x', body: {} })).status, 401)
+  const response = await request('/v1/session/renew', { token, body: {} })
+  assert.equal(response.status, 200)
+  const renewed = await response.json()
+  assert.ok(renewed.expires_at > clock)
+  const replies = await request(`/v1/conversations/${uid}/replies`, { token: renewed.token })
+  assert.equal(replies.status, 200)
+  assert.equal((await replies.json()).replies[0].text, 'Human reply')
+  clock += 30 * 24 * 3_600_000
+  assert.equal((await request('/v1/session/renew', { token, body: {} })).status, 401)
+  assert.equal((await request(`/v1/conversations/${uid}/replies`, { token: renewed.token })).status, 401)
+})

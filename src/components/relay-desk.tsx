@@ -6,8 +6,9 @@ import { basePath } from "@/lib/site"
 import { profile } from "@/lib/profile"
 
 type Reply = { cursor: number; text: string; created_at: string }
-type Conversation = { client_message_id: string; display_name: string; message: string; conversation_id?: string; status: string; replies: Reply[]; cursor: number }
+type Conversation = { client_message_id: string; display_name: string; message: string; conversation_id?: string; status: string; replies: Reply[]; cursor: number; archived?: boolean }
 type Saved = { token: string; expires_at: number; conversations: Conversation[] }
+class RequestError extends Error { constructor(message: string, readonly status: number) { super(message) } }
 const STORAGE = "anoop-human-relay-v1"
 const labels: Record<string, string> = {
   pending: "Not confirmed yet. Retry below to check or send this same question.",
@@ -33,6 +34,7 @@ export function RelayDesk({ question }: { question: string }) {
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const endpointRef = useRef("")
+  const renewalRef = useRef<Promise<Saved> | null>(null)
 
   const save = useCallback((value: Saved) => {
     localStorage.setItem(STORAGE, JSON.stringify(value))
@@ -46,7 +48,7 @@ export function RelayDesk({ question }: { question: string }) {
     else current.conversations[index] = conversation
     save(current)
   }, [save])
-  async function request(path: string, token?: string, body?: unknown) {
+  const request = useCallback(async (path: string, token?: string, body?: unknown) => {
     const response = await fetch(`${endpointRef.current}${path}`, {
       method: body === undefined ? "GET" : "POST",
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
@@ -54,9 +56,32 @@ export function RelayDesk({ question }: { question: string }) {
       signal: AbortSignal.timeout(20_000), cache: "no-store", credentials: "omit",
     })
     const data = await response.json()
-    if (!response.ok) throw Error(data.error || "Messaging is unavailable. Please try again later.")
+    if (!response.ok) throw new RequestError(data.error || "Messaging is unavailable. Please try again later.", response.status)
     return data
-  }
+  }, [])
+
+  const usableSession = useCallback(async (existing: Saved): Promise<Saved> => {
+    if (existing.expires_at > Date.now() + 24 * 3_600_000) return existing
+    if (renewalRef.current) return renewalRef.current
+    const renewal = (async () => {
+      let session: { token: string; expires_at: number }
+      let archive = false
+      try {
+        session = await request('/v1/session/renew', existing.token, {})
+      } catch (cause) {
+        if (!(cause instanceof RequestError) || cause.status !== 401) throw cause
+        session = await request('/v1/session', undefined, {})
+        archive = true
+      }
+      const latest = read() ?? existing
+      if (latest.token !== existing.token) return latest
+      const next: Saved = { ...latest, ...session, conversations: archive ? latest.conversations.map(item => ({ ...item, archived: true })) : latest.conversations }
+      save(next)
+      return next
+    })()
+    renewalRef.current = renewal
+    try { return await renewal } finally { if (renewalRef.current === renewal) renewalRef.current = null }
+  }, [request, save])
 
   useEffect(() => {
     let cancelled = false
@@ -88,10 +113,10 @@ export function RelayDesk({ question }: { question: string }) {
     async function poll() {
       try {
         if (!document.hidden && !busyRef.current) {
-          const current = read()
-          if (current && current.expires_at <= Date.now()) throw Error("Your 30-day visitor session has expired. Your saved replies remain below. Use LinkedIn for follow-up.")
+          const stored = read()
+          const current = stored ? await usableSession(stored) : null
           for (const conversation of current?.conversations ?? []) {
-            if (stopped || !conversation.conversation_id || conversation.status === "failed") continue
+            if (stopped || conversation.archived || !conversation.conversation_id || conversation.status === "failed") continue
             const data = await request(`/v1/conversations/${conversation.conversation_id}/replies?after=${conversation.cursor}`, current!.token)
             if (stopped) return
             // Store replies and cursor together before the next request; stable IDs deduplicate retries.
@@ -110,20 +135,21 @@ export function RelayDesk({ question }: { question: string }) {
     }
     void poll()
     return () => { stopped = true; clearTimeout(timer) }
-  }, [endpoint, update])
+  }, [endpoint, request, update, usableSession])
 
   async function send(retry?: Conversation) {
     if (busyRef.current || !ready) return
     busyRef.current = true; setBusy(true); setError("")
     try {
       let current = read()
-      if (current && current.expires_at <= Date.now()) throw Error("Your visitor session expired. Please use LinkedIn for follow-up.")
+      if (current) current = await usableSession(current)
       if (!current) {
         const session = await request("/v1/session", undefined, {})
         current = { ...session, conversations: [] }
         save(current!)
       }
-      if (!retry && current!.conversations.length >= 20) throw Error("This browser has reached its 20-question limit. Please use LinkedIn for further questions.")
+      if (retry && current!.conversations.find(item => item.client_message_id === retry.client_message_id)?.archived) throw Error("This earlier question cannot be retried after its session expired. Please ask a new question.")
+      if (!retry && current!.conversations.filter(item => !item.archived).length >= 20) throw Error("This browser has reached its 20-question limit. Please use LinkedIn for further questions.")
       const conversation: Conversation = retry ?? { client_message_id: crypto.randomUUID(), display_name: name.trim() || "Website visitor", message: question.trim(), status: "pending", replies: [], cursor: 0 }
       // Save the request ID before network activity. An uncertain POST always retries with this ID.
       update(conversation)
@@ -134,7 +160,7 @@ export function RelayDesk({ question }: { question: string }) {
     } finally { busyRef.current = false; setBusy(false) }
   }
 
-  const pending = saved?.conversations.some(item => !item.conversation_id)
+  const pending = saved?.conversations.some(item => !item.archived && !item.conversation_id)
   return <section className="mt-8 rounded-2xl border border-border bg-card p-5" aria-labelledby="message-heading">
     <h2 id="message-heading" className="font-serif text-2xl">Send your question to Anoop</h2>
     <p className="mt-3 text-sm leading-6 text-muted-foreground">I receive your question on Telegram and reply here personally. This is not an AI answer. Messaging is available while my local service is online; replies may take time.</p>
@@ -146,8 +172,8 @@ export function RelayDesk({ question }: { question: string }) {
     {!!saved?.conversations.length && <div className="mt-6 space-y-4"><h3 className="font-serif text-xl">Your conversations</h3>{saved.conversations.map(item => <article key={item.client_message_id} className="rounded-xl border border-border bg-background p-4">
       <p className="text-xs text-muted-foreground">You{item.display_name !== "Website visitor" ? ` · ${item.display_name}` : ""}</p>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{item.message}</p>
-      <p role="status" className="mt-3 text-xs text-muted-foreground">{labels[item.status] ?? "Checking delivery…"}</p>
-      {!item.conversation_id && <Button className="mt-3" variant="outline" disabled={busy || !ready} onClick={() => void send(item)}>Retry this question</Button>}
+      <p role="status" className="mt-3 text-xs text-muted-foreground">{item.archived ? "Previous session expired. Saved replies are shown, but new replies cannot be retrieved. Please ask a new question." : (labels[item.status] ?? "Checking delivery…")}</p>
+      {!item.archived && !item.conversation_id && <Button className="mt-3" variant="outline" disabled={busy || !ready} onClick={() => void send(item)}>Retry this question</Button>}
       {item.replies.map(reply => <div key={reply.cursor} className="mt-4 rounded-lg bg-accent p-3"><p className="text-xs font-medium">Anoop</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{reply.text}</p></div>)}
     </article>)}</div>}
   </section>

@@ -9,6 +9,7 @@ import { createRateLimitStore } from './rate-limits.mjs'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ID = /^[A-Za-z0-9._:@-]{1,128}$/
 const STATES = new Set(['queued', 'sending', 'awaiting_reply', 'answered', 'failed', 'delivery_unknown'])
+const SESSION_MS = 30 * 24 * 3_600_000
 const fail = (status, message) => Object.assign(new Error(message), { status })
 
 export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1:5678', origins, likeStore, rateLimitStore, fetchImpl = fetch, now = Date.now }) {
@@ -28,7 +29,7 @@ export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1
     }
     if (++buckets.get(key).count > max) throw fail(429, 'Please wait a minute before trying again.')
   }
-  function identity(req) {
+  function identity(req, recovery = false) {
     const token = (req.headers.authorization || '').replace(/^Bearer /, '')
     const [payload, signature, extra] = token.split('.')
     if (!payload || !signature || extra || token.length > 1024) throw fail(401, 'Your messaging session is unavailable or expired.')
@@ -37,8 +38,13 @@ export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw fail(401, 'Your messaging session is unavailable or expired.')
     let data
     try { data = JSON.parse(Buffer.from(payload, 'base64url').toString()) } catch { throw fail(401, 'Invalid session.') }
-    if (!UUID.test(data.sub) || !Number.isFinite(data.exp) || data.exp <= now()) throw fail(401, 'Your messaging session has expired.')
-    return `web:${data.sub}`
+    if (!data || !UUID.test(data.sub) || !Number.isFinite(data.exp) || data.exp <= now() - (recovery ? SESSION_MS : 0)) throw fail(401, 'Your messaging session has expired.')
+    return data.sub
+  }
+  function issueSession(sub) {
+    const expires_at = now() + SESSION_MS
+    const payload = Buffer.from(JSON.stringify({ sub, exp: expires_at })).toString('base64url')
+    return { token: `${payload}.${sign(payload)}`, expires_at }
   }
   async function jsonBody(req) {
     if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw fail(415, 'Send a JSON request.')
@@ -78,7 +84,7 @@ export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1
       res.setHeader('Access-Control-Allow-Origin', origin)
       const url = new URL(req.url, 'http://gateway.local')
       const replies = url.pathname.match(/^\/v1\/conversations\/([0-9a-f-]+)\/replies$/i)
-      const route = ['/v1/session', '/v1/conversations', '/v1/likes', '/health'].includes(url.pathname) || (replies && UUID.test(replies[1]))
+      const route = ['/v1/session', '/v1/session/renew', '/v1/conversations', '/v1/likes', '/health'].includes(url.pathname) || (replies && UUID.test(replies[1]))
       if (!route) throw fail(404, 'Not found.')
       if (req.method === 'OPTIONS') {
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -105,11 +111,15 @@ export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1
         await jsonBody(req)
         limit(`sessions:${ip}`, 10, 3_600_000)
         limit('sessions:global', 100, 3_600_000)
-        const expires_at = now() + 30 * 24 * 3_600_000
-        const payload = Buffer.from(JSON.stringify({ sub: randomUUID(), exp: expires_at })).toString('base64url')
-        return send(201, { token: `${payload}.${sign(payload)}`, expires_at })
+        return send(201, issueSession(randomUUID()))
       }
-      const user_id = identity(req)
+      if (url.pathname === '/v1/session/renew' && req.method === 'POST') {
+        limit(`renew-ip:${ip}`, 20, 3_600_000)
+        const sub = identity(req, true)
+        limit(`renew-user:${sub}`, 10, 3_600_000)
+        return send(200, issueSession(sub))
+      }
+      const user_id = `web:${identity(req)}`
       if (url.pathname === '/v1/conversations' && req.method === 'POST') {
         const body = await jsonBody(req)
         if (!body || Object.keys(body).some(key => !['client_message_id', 'display_name', 'message'].includes(key)) || typeof body.message !== 'string' || !body.message.trim() || body.message.length > 3000 || typeof body.display_name !== 'string' || !body.display_name.trim() || body.display_name.length > 80 || /[\r\n]/.test(body.display_name) || typeof body.client_message_id !== 'string' || !ID.test(body.client_message_id)) throw fail(400, 'Use a name (1–80 characters) and a question (1–3000 characters).')
