@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { ArticleLike } from "@/components/article-like"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { Guide } from "@/lib/types"
@@ -39,6 +40,7 @@ export function GuideView({ guide }: { guide: Guide }) {
           </section>
         ))}
       </div>
+      <ArticleLike article={`${guide.kind}/${guide.slug}`} />
       <aside className="mt-12 rounded-2xl bg-accent px-5 py-5">
         <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Keep this</p>
         <p className="mt-2 font-serif text-2xl leading-snug">{guide.takeaway}</p>

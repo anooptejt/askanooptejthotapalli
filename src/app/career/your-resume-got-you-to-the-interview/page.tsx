@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
+import { ArticleLike } from "@/components/article-like"
 import { basePath, siteUrl } from "@/lib/site"
 
 export const metadata: Metadata = {
@@ -56,6 +57,7 @@ export default function ResumeInterviewArticle() {
         <hr className="border-border" />
         <p>If you interview engineering interns, what is one foundational question you often ask? If you are preparing for interviews, which topic on your resume is hardest to explain from scratch?</p>
       </div>
+      <ArticleLike article="career/your-resume-got-you-to-the-interview" />
     </article>
   )
 }

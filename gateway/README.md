@@ -35,3 +35,7 @@ A new machine needs Node 22.13+, the existing Human Relay installation and key, 
 - Reply to the specific forwarded message using Telegram's quoted Reply action. Ordinary unquoted messages cannot identify a website conversation. Only the configured owner can reply.
 
 Run `npm run test:gateway` for HTTP boundary tests. The n8n relay's existing routing tests remain with its original installation. `npm test` also lints, builds the static site, and checks exported paths. Future always-online deployment should add durable abuse controls, account/recovery decisions, monitoring, backups and a stable hostname.
+
+## Article likes
+
+Likes are stored in `.relay/likes.sqlite` on this Mac, separately from the n8n Docker volume. Include this database in backups; deleting it resets all counts. One randomly generated browser ID can like an article once and can remove its like. Clearing browser storage or using another browser creates a new ID, so counts are approximate and can be manipulated; they do not verify unique people. Like controls are unavailable while the gateway is offline. The gateway applies request limits to reduce casual abuse.

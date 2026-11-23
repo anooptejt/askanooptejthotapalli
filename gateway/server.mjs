@@ -3,13 +3,14 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createLikeStore } from './likes.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ID = /^[A-Za-z0-9._:@-]{1,128}$/
 const STATES = new Set(['queued', 'sending', 'awaiting_reply', 'answered', 'failed', 'delivery_unknown'])
 const fail = (status, message) => Object.assign(new Error(message), { status })
 
-export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1:5678', origins, fetchImpl = fetch, now = Date.now }) {
+export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1:5678', origins, likeStore, fetchImpl = fetch, now = Date.now }) {
   if (!apiKey || signingKey.length < 32 || !origins?.length) throw Error('Gateway configuration is incomplete')
   const buckets = new Map()
   const sign = value => createHmac('sha256', signingKey).update(value).digest('base64url')
@@ -72,7 +73,7 @@ export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1
       res.setHeader('Access-Control-Allow-Origin', origin)
       const url = new URL(req.url, 'http://gateway.local')
       const replies = url.pathname.match(/^\/v1\/conversations\/([0-9a-f-]+)\/replies$/i)
-      const route = ['/v1/session', '/v1/conversations', '/health'].includes(url.pathname) || (replies && UUID.test(replies[1]))
+      const route = ['/v1/session', '/v1/conversations', '/v1/likes', '/health'].includes(url.pathname) || (replies && UUID.test(replies[1]))
       if (!route) throw fail(404, 'Not found.')
       if (req.method === 'OPTIONS') {
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -84,6 +85,17 @@ export function createGateway({ apiKey, signingKey, upstream = 'http://127.0.0.1
       const ip = req.headers['cf-connecting-ip'] || req.socket.remoteAddress
       limit(`all:${ip}`, 360)
       if (url.pathname === '/health' && req.method === 'GET') return send(200, { status: 'online' })
+      if (url.pathname === '/v1/likes' && (req.method === 'GET' || req.method === 'POST')) {
+        if (!likeStore) throw fail(503, 'Likes are temporarily unavailable.')
+        const body = req.method === 'POST' ? await jsonBody(req) : { article: url.searchParams.get('article'), visitor: url.searchParams.get('visitor') }
+        if (!body || typeof body.article !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(body.article) || body.article.length > 160 || typeof body.visitor !== 'string' || !UUID.test(body.visitor) || (req.method === 'POST' && (typeof body.liked !== 'boolean' || Object.keys(body).some(key => !['article', 'visitor', 'liked'].includes(key))))) throw fail(400, 'Invalid like request.')
+        if (req.method === 'POST') {
+          limit(`likes-ip:${ip}`, 30)
+          limit('likes:global', 300, 3_600_000)
+          return send(200, likeStore.set(body.article, body.visitor, body.liked))
+        }
+        return send(200, likeStore.get(body.article, body.visitor))
+      }
       if (url.pathname === '/v1/session' && req.method === 'POST') {
         await jsonBody(req)
         limit(`sessions:${ip}`, 10, 3_600_000)
@@ -126,7 +138,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const config = JSON.parse(await readFile(resolve('.relay/config.json'), 'utf8'))
   const apiKey = (await readFile(config.apiKeyFile, 'utf8')).trim()
   const signingKey = (await readFile(resolve('.relay/signing-key.txt'), 'utf8')).trim()
-  const server = createGateway({ ...config, apiKey, signingKey })
+  const likeStore = createLikeStore(resolve('.relay/likes.sqlite'))
+  const server = createGateway({ ...config, apiKey, signingKey, likeStore })
   server.listen(config.port || 38473, '127.0.0.1', () => console.log('Messaging gateway listening on 127.0.0.1:38473'))
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => process.exit(0)))
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { likeStore.close(); process.exit(0) }))
 }
