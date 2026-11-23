@@ -1,12 +1,12 @@
 import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
-import { basePath } from "@/lib/site"
+import { basePath, siteUrl } from "@/lib/site"
 
 export const metadata: Metadata = {
   title: "Your Resume Got You to the Interview. Can You Explain It?",
   description: "An internship interviewer shares why engineering fundamentals and understanding your own projects matter.",
-  alternates: { canonical: `${basePath}/career/your-resume-got-you-to-the-interview/` },
+  alternates: { canonical: `${siteUrl}career/your-resume-got-you-to-the-interview/` },
 }
 
 export default function ResumeInterviewArticle() {
