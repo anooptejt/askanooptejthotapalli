@@ -116,7 +116,7 @@ export function RelayDesk({ question }: { question: string }) {
           const stored = read()
           const current = stored ? await usableSession(stored) : null
           for (const conversation of current?.conversations ?? []) {
-            if (stopped || conversation.archived || !conversation.conversation_id || conversation.status === "failed") continue
+            if (stopped || conversation.hidden || conversation.archived || !conversation.conversation_id || conversation.status === "failed") continue
             const data = await request(`/v1/conversations/${conversation.conversation_id}/replies?after=${conversation.cursor}`, current!.token)
             if (stopped) return
             // Store replies and cursor together before the next request; stable IDs deduplicate retries.
