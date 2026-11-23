@@ -6,7 +6,7 @@ import { basePath } from "@/lib/site"
 import { profile } from "@/lib/profile"
 
 type Reply = { cursor: number; text: string; created_at: string }
-type Conversation = { client_message_id: string; display_name: string; message: string; conversation_id?: string; status: string; replies: Reply[]; cursor: number; archived?: boolean }
+type Conversation = { client_message_id: string; display_name: string; message: string; conversation_id?: string; status: string; replies: Reply[]; cursor: number; archived?: boolean; hidden?: boolean }
 type Saved = { token: string; expires_at: number; conversations: Conversation[] }
 class RequestError extends Error { constructor(message: string, readonly status: number) { super(message) } }
 const STORAGE = "anoop-human-relay-v1"
@@ -161,6 +161,12 @@ export function RelayDesk({ question }: { question: string }) {
   }
 
   const pending = saved?.conversations.some(item => !item.archived && !item.conversation_id)
+  const visible = saved?.conversations.filter(item => !item.hidden) ?? []
+  const hidden = saved?.conversations.some(item => item.hidden)
+  function setConversationsHidden(value: boolean) {
+    const current = read()
+    if (current) save({ ...current, conversations: current.conversations.map(item => ({ ...item, hidden: value })) })
+  }
   return <section className="mt-8 rounded-2xl border border-border bg-card p-5" aria-labelledby="message-heading">
     <h2 id="message-heading" className="font-serif text-2xl">Send your question to Anoop</h2>
     <p className="mt-3 text-sm leading-6 text-muted-foreground">I receive your question on Telegram and reply here personally. This is not an AI answer. Messaging is available while my local service is online; replies may take time.</p>
@@ -169,12 +175,13 @@ export function RelayDesk({ question }: { question: string }) {
     <Button className="mt-4" size="lg" disabled={!ready || busy || !question.trim() || !!pending} onClick={() => void send()}>{busy ? "Sending…" : "Send question to Anoop"}</Button>
     <p className="mt-3 text-xs leading-5 text-muted-foreground">Your question and reply are stored by the relay and in this browser. Return here using the same browser to read replies. Clearing browser data loses access. Please leave out passwords and other sensitive information.</p>
     {error && <p role="alert" className="mt-4 text-sm leading-6">{error} <a href={profile.linkedin} className="underline" target="_blank" rel="noreferrer">Contact Anoop on LinkedIn</a>.</p>}
-    {!!saved?.conversations.length && <div className="mt-6 space-y-4"><h3 className="font-serif text-xl">Your conversations</h3>{saved.conversations.map(item => <article key={item.client_message_id} className="rounded-xl border border-border bg-background p-4">
+    {!!visible.length && <div className="mt-6 space-y-4"><h3 className="font-serif text-xl">Your conversations</h3><Button variant="outline" disabled={busy} onClick={() => setConversationsHidden(true)}>Clear conversation list</Button><p className="text-xs text-muted-foreground">Clears the list in this browser; messages remain stored by the relay.</p>{visible.map(item => <article key={item.client_message_id} className="rounded-xl border border-border bg-background p-4">
       <p className="text-xs text-muted-foreground">You{item.display_name !== "Website visitor" ? ` · ${item.display_name}` : ""}</p>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{item.message}</p>
       <p role="status" className="mt-3 text-xs text-muted-foreground">{item.archived ? "Previous session expired. Saved replies are shown, but new replies cannot be retrieved. Please ask a new question." : (labels[item.status] ?? "Checking delivery…")}</p>
       {!item.archived && !item.conversation_id && <Button className="mt-3" variant="outline" disabled={busy || !ready} onClick={() => void send(item)}>Retry this question</Button>}
       {item.replies.map(reply => <div key={reply.cursor} className="mt-4 rounded-lg bg-accent p-3"><p className="text-xs font-medium">Anoop</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{reply.text}</p></div>)}
     </article>)}</div>}
+    {hidden && <Button className="mt-4" variant="outline" disabled={busy} onClick={() => setConversationsHidden(false)}>Show cleared conversations</Button>}
   </section>
 }
