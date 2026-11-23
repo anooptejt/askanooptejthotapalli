@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { careerGuides } from "@/content/career"
+import { MediumArticleList } from "@/components/medium-article-list"
 
 export const metadata: Metadata = {
   title: "Career",
@@ -18,6 +19,7 @@ export default function CareerPage() {
           <p className="mt-2 text-muted-foreground">Why understanding engineering fundamentals and your own projects matters in an internship interview.</p>
         </Link>
       </div>
+      <MediumArticleList kind="career" />
       <ul className="mt-10 space-y-4">
         {careerGuides.map((guide) => (
           <li key={guide.slug}>

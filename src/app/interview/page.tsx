@@ -1,6 +1,8 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { interviewGuides } from "@/content/interview"
+import { MediumArticleList } from "@/components/medium-article-list"
+import { articlesFor } from "@/lib/medium-articles"
 
 export const metadata: Metadata = {
   title: "Interview",
@@ -12,13 +14,14 @@ export default function InterviewPage() {
     <div className="mx-auto max-w-3xl px-4 py-12">
       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Interview</p>
       <h1 className="mt-3 font-serif text-4xl tracking-tight sm:text-5xl">Interview</h1>
-      {interviewGuides.length === 0 && (
+      {interviewGuides.length === 0 && articlesFor("interview").length === 0 && (
         <div className="mt-8 rounded-2xl border border-border bg-card p-6">
           <h2 className="font-serif text-2xl">No articles published yet.</h2>
           <p className="mt-3 text-muted-foreground">New writing from Anoop will appear here.</p>
           <Link href="/ask" className="mt-5 inline-block text-sm underline underline-offset-4">Have a question? Ask Anoop</Link>
         </div>
       )}
+      <MediumArticleList kind="interview" />
       <ul className="mt-10 space-y-4">
         {interviewGuides.map((guide) => (
           <li key={guide.slug}>

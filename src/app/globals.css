@@ -2,6 +2,19 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+.medium-article-body { font-size: 1.05rem; line-height: 1.85; overflow-wrap: anywhere; }
+.medium-article-body p, .medium-article-body ul, .medium-article-body ol, .medium-article-body blockquote, .medium-article-body figure, .medium-article-body pre { margin: 1.25rem 0; }
+.medium-article-body h2, .medium-article-body h3 { font-family: var(--font-newsreader), serif; line-height: 1.2; margin: 2.5rem 0 1rem; }
+.medium-article-body h2 { font-size: 1.875rem; }
+.medium-article-body h3 { font-size: 1.4rem; }
+.medium-article-body ul { list-style: disc; padding-left: 1.5rem; }
+.medium-article-body ol { list-style: decimal; padding-left: 1.5rem; }
+.medium-article-body a { text-decoration: underline; text-underline-offset: 3px; }
+.medium-article-body blockquote { border-left: 3px solid currentColor; padding-left: 1rem; }
+.medium-article-body pre { overflow-x: auto; padding: 1rem; border-radius: 0.75rem; background: var(--accent); white-space: pre; }
+.medium-article-body img { display: block; max-width: 100%; height: auto; border-radius: 0.75rem; }
+.medium-article-body figcaption { font-size: 0.8rem; color: var(--muted-foreground); }
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

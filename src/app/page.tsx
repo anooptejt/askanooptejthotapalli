@@ -4,19 +4,29 @@ import { ProfileLinks } from "@/components/profile-links"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { profile } from "@/lib/profile"
+import { careerGuides } from "@/content/career"
+import { libraryGuides } from "@/content/library"
+import { interviewGuides } from "@/content/interview"
+import { articlesFor } from "@/lib/medium-articles"
+
+const careerCount = careerGuides.length + articlesFor("career").length + 1 // The resume article has its own page.
+const libraryCount = libraryGuides.length + articlesFor("library").length
+const interviewCount = interviewGuides.length + articlesFor("interview").length
+const articleCount = careerCount + libraryCount + interviewCount
+const articleLabel = (count: number) => `${count} ${count === 1 ? "article" : "articles"}`
 
 const doors = [
   {
     href: "/career",
     index: "01",
     title: "Career guidance",
-    text: "No articles published yet. New writing will appear here.",
+    text: `${articleLabel(careerCount)} on careers and professional growth.`,
   },
   {
     href: "/library",
     index: "02",
     title: "Library",
-    text: "No articles published yet. New writing will appear here.",
+    text: `${articleLabel(libraryCount)} on technology, learning, and life.`,
   },
   {
     href: "/open-source",
@@ -28,7 +38,7 @@ const doors = [
     href: "/interview",
     index: "04",
     title: "Interview practice",
-    text: "No articles published yet. New writing will appear here.",
+    text: `${articleLabel(interviewCount)} to help you prepare.`,
   },
 ]
 
@@ -82,7 +92,7 @@ export default function HomePage() {
       <section className="mx-auto grid max-w-5xl gap-4 px-4 pb-8 sm:grid-cols-2" aria-labelledby="current-guides">
         <div className="sm:col-span-2">
           <h2 id="current-guides" className="font-serif text-3xl">Explore the sections</h2>
-          <p className="mt-2 text-muted-foreground">New writing will appear here as I add it. Your questions can go anywhere.</p>
+          <p className="mt-2 text-muted-foreground">Explore {articleLabel(articleCount)} across career guidance, the library, and interview practice. Your questions can go anywhere.</p>
         </div>
         {doors.map((door) => (
           <Link key={door.href} href={door.href} className="rounded-2xl bg-card p-5 ring-1 ring-foreground/10 transition hover:bg-accent">
